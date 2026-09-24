@@ -18,7 +18,6 @@ export function buildApp() {
       }
       return randomUUID();
     },
-    disableRequestLogging: false,
   });
 
   // Security headers & CORS
