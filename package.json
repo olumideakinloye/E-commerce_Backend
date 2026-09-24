@@ -8,8 +8,13 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc && tsc-alias",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "start": "node dist/server.js",
-    "test": "echo \"Tests configured in later phase\" && exit 0"
+    "test": "echo \"Tests configured in later phase\" && exit 0",
+    "prepare": "husky"
   },
   "keywords": [
     "ecommerce",
@@ -21,9 +26,18 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.2",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.9.9",
     "tsc-alias": "^1.9.5",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.70.1"
   }
 }
