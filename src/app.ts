@@ -9,6 +9,7 @@ import { checkMongoHealth } from '@infra/mongo.js';
 import { checkRedisHealth, getRedisClient } from '@infra/redis.js';
 import { env } from '@config/env.js';
 import { authRoutes } from '@modules/auth/auth.routes.js';
+import { orderRoutes } from '@modules/orders/orders.routes.js';
 
 export function buildApp() {
   const app = fastify({
@@ -85,6 +86,11 @@ export function buildApp() {
   // Auth routes with strict rate limiting
   app.register(authRoutes, {
     prefix: '/api/v1/auth',
+  });
+
+  // Order routes (owner-scoped; see common/ownership.ts for the anti-IDOR pattern)
+  app.register(orderRoutes, {
+    prefix: '/api/v1/orders',
   });
 
   return app;

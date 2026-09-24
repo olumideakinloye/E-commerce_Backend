@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { UnauthorizedError } from '@common/errors.js';
+import { ForbiddenError, UnauthorizedError } from '@common/errors.js';
 import { verifyAccessToken } from '@common/utils/tokens.js';
 import { findUserById } from '@modules/auth/auth.repository.js';
 import type { UserRole } from '@modules/auth/models/user.model.js';
@@ -62,6 +62,14 @@ export async function authenticate(request: FastifyRequest, _reply: FastifyReply
 /**
  * Role-based access guard. Must be used after `authenticate`.
  *
+ * This is RBAC, not ownership: a customer hitting an admin-only route gets a
+ * plain 403. The route's existence isn't a secret (it's in the API docs), so
+ * there's nothing to hide by pretending it's a 404.
+ *
+ * Per-resource *ownership* checks (e.g. "is this order yours?") are a
+ * different concern with a different status code — see common/ownership.ts,
+ * which returns 404 there because existence itself is what must stay hidden.
+ *
  * @example
  *   preHandler: [authenticate, authorize('admin')]
  */
@@ -72,9 +80,7 @@ export function authorize(...allowedRoles: UserRole[]) {
     }
 
     if (!allowedRoles.includes(request.user.role)) {
-      // Return 404 instead of 403 to avoid leaking resource existence to other users
-      // For admin-only routes we use 403 since the route itself is known
-      throw new UnauthorizedError('Insufficient permissions');
+      throw new ForbiddenError('Insufficient permissions');
     }
   };
 }
