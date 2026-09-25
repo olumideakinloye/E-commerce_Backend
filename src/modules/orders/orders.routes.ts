@@ -6,6 +6,7 @@ import {
   handleGetOrder,
   handleCancelOrder,
 } from './orders.controller.js';
+import { handleVerifyOrderPayment } from '@modules/payments/payments.controller.js';
 import { env } from '@config/env.js';
 
 export async function orderRoutes(app: FastifyInstance): Promise<void> {
@@ -34,6 +35,9 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /orders/:id — anti-IDOR owner-scoped single order
   app.get('/:id', handleGetOrder);
+
+  // GET /orders/:id/verify-payment — Scenario D browser callback active verification
+  app.get('/:id/verify-payment', handleVerifyOrderPayment);
 
   // POST /orders/:id/cancel — cancel pending order and release reserved stock
   app.post('/:id/cancel', handleCancelOrder);

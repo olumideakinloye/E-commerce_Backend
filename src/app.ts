@@ -12,6 +12,7 @@ import { authRoutes } from '@modules/auth/auth.routes.js';
 import { orderRoutes } from '@modules/orders/orders.routes.js';
 import { productRoutes } from '@modules/products/products.routes.js';
 import { cartRoutes } from '@modules/cart/cart.routes.js';
+import { webhookRoutes } from '@modules/payments/payments.routes.js';
 
 export function buildApp() {
   const app = fastify({
@@ -104,6 +105,11 @@ export function buildApp() {
   // Cart routes (authenticated, owner-scoped)
   app.register(cartRoutes, {
     prefix: '/api/v1/cart',
+  });
+
+  // Webhook routes (payment gateway callbacks)
+  app.register(webhookRoutes, {
+    prefix: '/api/v1/webhooks',
   });
 
   return app;
