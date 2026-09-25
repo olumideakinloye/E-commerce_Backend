@@ -3,6 +3,7 @@ import { env } from '@config/env.js';
 import { logger } from '@common/logger.js';
 import { connectMongo, disconnectMongo } from '@infra/mongo.js';
 import { connectRedis, disconnectRedis } from '@infra/redis.js';
+import { startOutboxProcessor, type OutboxProcessor } from '@modules/jobs/outbox.processor.js';
 
 async function bootstrap(): Promise<void> {
   // Connect to persistent databases
@@ -24,6 +25,12 @@ async function bootstrap(): Promise<void> {
     );
   }
 
+  // Start the outbox dispatcher (polls every 5s for pending events)
+  let outboxProcessor: OutboxProcessor | null = null;
+  if (env.NODE_ENV !== 'test') {
+    outboxProcessor = startOutboxProcessor();
+  }
+
   const app = buildApp();
 
   let isShuttingDown = false;
@@ -43,6 +50,11 @@ async function bootstrap(): Promise<void> {
     try {
       logger.info('Closing HTTP server...');
       await app.close();
+
+      if (outboxProcessor) {
+        logger.info('Stopping outbox processor...');
+        await outboxProcessor.stop();
+      }
 
       logger.info('Disconnecting Redis...');
       await disconnectRedis();

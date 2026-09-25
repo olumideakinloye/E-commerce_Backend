@@ -48,6 +48,10 @@ const paymentSchema = new Schema(
       type: Schema.Types.Mixed,
       default: null,
     },
+    authorizationUrl: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
