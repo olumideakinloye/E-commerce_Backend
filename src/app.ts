@@ -13,6 +13,8 @@ import { orderRoutes } from '@modules/orders/orders.routes.js';
 import { productRoutes } from '@modules/products/products.routes.js';
 import { cartRoutes } from '@modules/cart/cart.routes.js';
 import { webhookRoutes } from '@modules/payments/payments.routes.js';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import { saveIdempotentResponseHook } from '@common/middleware/idempotency.js';
 
 export function buildApp() {
@@ -38,6 +40,42 @@ export function buildApp() {
   app.register(cors, {
     origin: true,
     credentials: true,
+  });
+
+  // OpenAPI / Swagger Documentation
+  app.register(swagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'High-Scale E-Commerce API',
+        description:
+          'Production-grade, horizontally scalable e-commerce backend built with Node.js, Fastify, TypeScript, MongoDB, Redis, and BullMQ.',
+        version: '1.0.0',
+      },
+      servers: [
+        {
+          url: `http://localhost:${env.PORT}`,
+          description: 'Development server',
+        },
+      ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+          },
+        },
+      },
+    },
+  });
+
+  app.register(swaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+    },
   });
 
   // Global rate limit (Redis-backed when available, in-memory fallback)

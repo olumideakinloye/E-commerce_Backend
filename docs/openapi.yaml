@@ -1,0 +1,329 @@
+openapi: 3.1.0
+info:
+  title: High-Scale E-Commerce API
+  description: >
+    Production-grade, horizontally scalable e-commerce backend built with Node.js,
+    Fastify, TypeScript, MongoDB (replica sets), Redis, and BullMQ.
+    Engineered to handle millions of users with rock-solid data integrity guarantees.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+  - url: https://api.store.example.com
+    description: Production API
+
+paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      description: Returns 200 if the Node.js event loop is responding. Used by Kubernetes/Docker.
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+
+  /health/ready:
+    get:
+      summary: Readiness probe
+      description: Verifies active connections to MongoDB replica set and Redis.
+      responses:
+        '200':
+          description: All downstream dependencies are healthy
+        '503':
+          description: One or more downstream dependencies are degraded
+
+  /api/v1/auth/register:
+    post:
+      summary: Register customer account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201':
+          description: Account created successfully
+        '400':
+          description: Validation error
+        '409':
+          description: Email already in use
+
+  /api/v1/auth/login:
+    post:
+      summary: Customer / Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Returns access token and sets HTTP-only refresh cookie
+        '401':
+          description: Invalid email or password
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Rotate refresh token & issue new access token
+      description: Uses rotating refresh tokens with automatic breach detection and token family invalidation.
+      responses:
+        '200':
+          description: New tokens issued
+        '401':
+          description: Token reuse detected or invalid token
+
+  /api/v1/auth/logout:
+    post:
+      summary: Logout and revoke refresh token
+      responses:
+        '200':
+          description: Logged out successfully
+
+  /api/v1/products:
+    get:
+      summary: List and search products
+      parameters:
+        - name: cursor
+          in: query
+          description: Keyset pagination cursor
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: q
+          in: query
+          description: Text search query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: minPriceMinor
+          in: query
+          schema: { type: integer }
+        - name: maxPriceMinor
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Keyset paginated product catalog with ETag header
+
+  /api/v1/products/{id}:
+    get:
+      summary: Get product by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Product details with cached inventory availability band
+        '304':
+          description: Not modified (ETag match)
+        '404':
+          description: Product not found
+
+  /api/v1/cart:
+    get:
+      summary: Get customer live cart
+      security:
+        - bearerAuth: []
+      description: Cart items are priced live against catalog. Flags any price adjustments or stock shortages.
+      responses:
+        '200':
+          description: Current cart state with live pricing and warnings
+
+  /api/v1/cart/items:
+    post:
+      summary: Add or update item in cart
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, qty]
+              properties:
+                productId: { type: string }
+                qty: { type: integer, minimum: 1, maximum: 50 }
+      responses:
+        '200':
+          description: Item added or updated
+
+  /api/v1/orders/checkout:
+    post:
+      summary: Checkout cart (idempotent, atomic stock reservation)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: idempotency-key
+          in: header
+          required: true
+          description: Unique client-generated idempotency key
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedTotalMinor, currency]
+              properties:
+                expectedTotalMinor: { type: integer }
+                currency: { type: string, default: NGN }
+                paymentProvider: { type: string, default: paystack }
+      responses:
+        '201':
+          description: Order created in PENDING_PAYMENT state with payment URL
+        '200':
+          description: Idempotent replay of existing order
+        '409':
+          description: Price changed mid-cart or insufficient stock
+        '422':
+          description: Idempotency key reused with different payload
+
+  /api/v1/orders:
+    get:
+      summary: List user orders (owner-scoped, anti-IDOR)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated order history
+
+  /api/v1/orders/{id}:
+    get:
+      summary: Get order by ID (owner-scoped)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Order snapshot
+        '404':
+          description: Order not found (safe 404 to avoid leaking existence)
+
+  /api/v1/orders/{id}/verify-payment:
+    get:
+      summary: Verify payment with payment gateway
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Verified payment status and updated order state
+
+  /api/v1/webhooks/paystack:
+    post:
+      summary: Payment gateway webhook receiver
+      description: Verifies HMAC SHA-512 signature against raw body. 3-layer idempotency ensures zero duplicate stock deductions.
+      parameters:
+        - name: x-paystack-signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Webhook received and processed (or deduplicated)
+        '401':
+          description: Invalid HMAC signature
+
+  /api/v1/admin/products:
+    post:
+      summary: Create product (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: idempotency-key
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description, priceMinor, currency, category]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                priceMinor: { type: integer, minimum: 1 }
+                currency: { type: string }
+                category: { type: string }
+                initialStock: { type: integer, minimum: 0 }
+      responses:
+        '201':
+          description: Product and initial inventory created
+        '403':
+          description: Forbidden - Admin role required
+
+  /api/v1/admin/inventory/{productId}:
+    put:
+      summary: Adjust warehouse stock on-hand (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [onHand]
+              properties:
+                onHand: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Inventory updated and audit log recorded
+        '403':
+          description: Forbidden - Admin role required
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
