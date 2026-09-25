@@ -53,7 +53,7 @@ export async function disconnectRedis(): Promise<void> {
 
 export async function checkRedisHealth(): Promise<boolean> {
   try {
-    if (!redisClient) return false;
+    if (!redisClient || redisClient.status !== 'ready') return false;
     const pong = await redisClient.ping();
     return pong === 'PONG';
   } catch {

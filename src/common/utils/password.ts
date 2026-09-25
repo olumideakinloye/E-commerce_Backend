@@ -1,19 +1,19 @@
-import * as argon2 from 'argon2';
+import { argon2id, hash, verify, type HashOptions } from 'argon2';
 
-const ARGON2_OPTIONS: argon2.Options & { raw?: false } = {
-  type: argon2.argon2id,
+const ARGON2_OPTIONS: HashOptions = {
+  type: argon2id,
   memoryCost: 65536, // 64 MiB
   timeCost: 3,
   parallelism: 4,
 };
 
 export async function hashPassword(password: string): Promise<string> {
-  return argon2.hash(password, ARGON2_OPTIONS);
+  return hash(password, ARGON2_OPTIONS);
 }
 
 export async function verifyPassword(hash: string, password: string): Promise<boolean> {
   try {
-    return await argon2.verify(hash, password);
+    return await verify(hash, password);
   } catch {
     return false;
   }

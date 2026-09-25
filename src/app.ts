@@ -39,7 +39,7 @@ export function buildApp() {
     global: true,
     max: env.RATE_LIMIT_GLOBAL_MAX,
     timeWindow: env.RATE_LIMIT_GLOBAL_WINDOW_MS,
-    redis: getRedisClient(),
+    redis: env.NODE_ENV === 'test' ? undefined : getRedisClient(),
     keyGenerator: (request) => request.user?.id ?? (request.ip || 'unknown'),
     errorResponseBuilder: (_request, context) => ({
       error: {

@@ -1,4 +1,4 @@
-import { isValidObjectId, type FilterQuery, type HydratedDocument, type Model } from 'mongoose';
+import { isValidObjectId, type HydratedDocument, type Model } from 'mongoose';
 import { NotFoundError } from './errors.js';
 
 /**
@@ -33,7 +33,7 @@ export async function findOwnedOrThrow<T>(
     throw new NotFoundError(notFoundMessage);
   }
 
-  const doc = await model.findOne({ _id: id, userId } as FilterQuery<T>);
+  const doc = await model.findOne({ _id: id, userId } as Record<string, unknown>);
 
   if (!doc) {
     throw new NotFoundError(notFoundMessage);

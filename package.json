@@ -15,6 +15,7 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "seed:admin": "tsx src/scripts/seed-admin.ts",
     "prepare": "husky"
   },
   "keywords": [
