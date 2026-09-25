@@ -10,6 +10,7 @@ import { checkRedisHealth, getRedisClient } from '@infra/redis.js';
 import { env } from '@config/env.js';
 import { authRoutes } from '@modules/auth/auth.routes.js';
 import { orderRoutes } from '@modules/orders/orders.routes.js';
+import { productRoutes } from '@modules/products/products.routes.js';
 
 export function buildApp() {
   const app = fastify({
@@ -91,6 +92,11 @@ export function buildApp() {
   // Order routes (owner-scoped; see common/ownership.ts for the anti-IDOR pattern)
   app.register(orderRoutes, {
     prefix: '/api/v1/orders',
+  });
+
+  // Product & catalog routes (public + admin)
+  app.register(productRoutes, {
+    prefix: '/api/v1',
   });
 
   return app;
