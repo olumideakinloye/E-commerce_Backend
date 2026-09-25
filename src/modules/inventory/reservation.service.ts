@@ -1,4 +1,4 @@
-import mongoose, { Types } from 'mongoose';
+import mongoose, { Types, type ClientSession } from 'mongoose';
 import { Inventory } from './models/inventory.model.js';
 import { Reservation } from './models/reservation.model.js';
 import { UnprocessableEntityError } from '@common/errors.js';
@@ -12,7 +12,7 @@ export interface ReservationItem {
 }
 
 /**
- * Atomically reserve stock for all items in a single MongoDB transaction.
+ * Low-level transactional reservation execution within an existing MongoDB ClientSession.
  *
  * Scenario A — overselling prevention:
  * Each product's inventory is updated with a conditional update:
@@ -22,15 +22,13 @@ export interface ReservationItem {
  *
  * Items are deterministically sorted by productId before reserving
  * to avoid MongoDB write-conflict deadlock patterns across concurrent multi-item transactions.
- *
- * Rolls back all partial increments if any item is out of stock.
  */
-export async function reserveStock(
-  orderId: string | Types.ObjectId,
+export async function reserveStockInSession(
+  orderId: Types.ObjectId,
   items: ReservationItem[],
+  session: ClientSession,
   customTtlMs?: number,
-): Promise<string> {
-  const oId = typeof orderId === 'string' ? new Types.ObjectId(orderId) : orderId;
+): Promise<void> {
   const ttlMs = customTtlMs ?? RESERVATION_TTL_MS;
   const expiresAt = new Date(Date.now() + ttlMs);
 
@@ -39,52 +37,94 @@ export async function reserveStock(
     String(a.productId).localeCompare(String(b.productId)),
   );
 
+  // Phase 1: Conditionally increment reserved for each product in deterministic order
+  for (const item of sortedItems) {
+    const pId =
+      typeof item.productId === 'string' ? new Types.ObjectId(item.productId) : item.productId;
+
+    const updated = await Inventory.findOneAndUpdate(
+      {
+        productId: pId,
+        // The atomic guard: only succeeds if available (onHand - reserved) >= qty
+        $expr: { $gte: [{ $subtract: ['$onHand', '$reserved'] }, item.qty] },
+      },
+      { $inc: { reserved: item.qty } },
+      { session, returnDocument: 'after' },
+    );
+
+    if (!updated) {
+      // Not enough stock — abort transaction, rolling back everything
+      throw new UnprocessableEntityError(`Insufficient stock for product ${pId.toString()}`);
+    }
+  }
+
+  // Phase 2: Create the Reservation record
+  await Reservation.create(
+    [
+      {
+        orderId,
+        items: items.map((i) => ({
+          productId:
+            typeof i.productId === 'string' ? new Types.ObjectId(i.productId) : i.productId,
+          qty: i.qty,
+        })),
+        status: 'ACTIVE',
+        expiresAt,
+      },
+    ],
+    { session },
+  );
+}
+
+/**
+ * Atomically reserve stock for all items in a single MongoDB transaction.
+ * Creates its own session and commits or aborts.
+ */
+export async function reserveStock(
+  orderId: string | Types.ObjectId,
+  items: ReservationItem[],
+  customTtlMs?: number,
+): Promise<string> {
+  const oId = typeof orderId === 'string' ? new Types.ObjectId(orderId) : orderId;
+
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
-      // Phase 1: Conditionally increment reserved for each product in deterministic order
-      for (const item of sortedItems) {
-        const pId =
-          typeof item.productId === 'string' ? new Types.ObjectId(item.productId) : item.productId;
-
-        const updated = await Inventory.findOneAndUpdate(
-          {
-            productId: pId,
-            // The atomic guard: only succeeds if available (onHand - reserved) >= qty
-            $expr: { $gte: [{ $subtract: ['$onHand', '$reserved'] }, item.qty] },
-          },
-          { $inc: { reserved: item.qty } },
-          { session, returnDocument: 'after' },
-        );
-
-        if (!updated) {
-          // Not enough stock — abort transaction, rolling back everything
-          throw new UnprocessableEntityError(`Insufficient stock for product ${pId.toString()}`);
-        }
-      }
-
-      // Phase 2: Create the Reservation record
-      await Reservation.create(
-        [
-          {
-            orderId: oId,
-            items: items.map((i) => ({
-              productId:
-                typeof i.productId === 'string' ? new Types.ObjectId(i.productId) : i.productId,
-              qty: i.qty,
-            })),
-            status: 'ACTIVE',
-            expiresAt,
-          },
-        ],
-        { session },
-      );
+      await reserveStockInSession(oId, items, session, customTtlMs);
     });
   } finally {
     await session.endSession();
   }
 
   return oId.toString();
+}
+
+/**
+ * Commit reservation within an existing session.
+ */
+export async function commitReservationInSession(
+  orderId: Types.ObjectId,
+  session: ClientSession,
+): Promise<void> {
+  const reservation = await Reservation.findOneAndUpdate(
+    { orderId, status: 'ACTIVE' },
+    { $set: { status: 'COMMITTED' } },
+    { session, returnDocument: 'after' },
+  );
+
+  if (!reservation) {
+    throw new UnprocessableEntityError('No active reservation found for this order');
+  }
+
+  await Promise.all(
+    reservation.items.map((item) =>
+      Inventory.updateOne(
+        { productId: item.productId },
+        { $inc: { onHand: -item.qty, reserved: -item.qty } },
+        { session },
+      ),
+    ),
+  );
 }
 
 /**
@@ -98,29 +138,40 @@ export async function commitReservation(orderId: string | Types.ObjectId): Promi
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
-      const reservation = await Reservation.findOneAndUpdate(
-        { orderId: oId, status: 'ACTIVE' },
-        { $set: { status: 'COMMITTED' } },
-        { session, returnDocument: 'after' },
-      );
-
-      if (!reservation) {
-        throw new UnprocessableEntityError('No active reservation found for this order');
-      }
-
-      await Promise.all(
-        reservation.items.map((item) =>
-          Inventory.updateOne(
-            { productId: item.productId },
-            { $inc: { onHand: -item.qty, reserved: -item.qty } },
-            { session },
-          ),
-        ),
-      );
+      await commitReservationInSession(oId, session);
     });
   } finally {
     await session.endSession();
   }
+}
+
+/**
+ * Release reservation within an existing session.
+ */
+export async function releaseReservationInSession(
+  orderId: Types.ObjectId,
+  session: ClientSession,
+): Promise<void> {
+  const reservation = await Reservation.findOneAndUpdate(
+    {
+      orderId,
+      status: 'ACTIVE',
+    },
+    { $set: { status: 'RELEASED' } },
+    { session, returnDocument: 'after' },
+  );
+
+  if (!reservation) return; // already released, committed, or expired — idempotent
+
+  await Promise.all(
+    reservation.items.map((item) =>
+      Inventory.updateOne(
+        { productId: item.productId },
+        { $inc: { reserved: -item.qty } },
+        { session },
+      ),
+    ),
+  );
 }
 
 /**
@@ -135,26 +186,7 @@ export async function releaseReservation(orderId: string | Types.ObjectId): Prom
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
-      const reservation = await Reservation.findOneAndUpdate(
-        {
-          orderId: oId,
-          status: 'ACTIVE',
-        },
-        { $set: { status: 'RELEASED' } },
-        { session, returnDocument: 'after' },
-      );
-
-      if (!reservation) return; // already released, committed, or expired — idempotent
-
-      await Promise.all(
-        reservation.items.map((item) =>
-          Inventory.updateOne(
-            { productId: item.productId },
-            { $inc: { reserved: -item.qty } },
-            { session },
-          ),
-        ),
-      );
+      await releaseReservationInSession(oId, session);
     });
   } finally {
     await session.endSession();

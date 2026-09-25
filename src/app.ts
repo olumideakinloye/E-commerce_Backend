@@ -44,6 +44,7 @@ export function buildApp() {
     redis: env.NODE_ENV === 'test' ? undefined : getRedisClient(),
     keyGenerator: (request) => request.user?.id ?? (request.ip || 'unknown'),
     errorResponseBuilder: (_request, context) => ({
+      statusCode: 429,
       error: {
         code: 'TOO_MANY_REQUESTS',
         message: `Rate limit exceeded. Retry after ${context.after}`,
