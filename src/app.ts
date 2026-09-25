@@ -13,11 +13,14 @@ import { orderRoutes } from '@modules/orders/orders.routes.js';
 import { productRoutes } from '@modules/products/products.routes.js';
 import { cartRoutes } from '@modules/cart/cart.routes.js';
 import { webhookRoutes } from '@modules/payments/payments.routes.js';
+import { saveIdempotentResponseHook } from '@common/middleware/idempotency.js';
 
 export function buildApp() {
   const app = fastify({
     loggerInstance: logger,
     requestIdHeader: 'x-request-id',
+    connectionTimeout: 10_000,
+    requestTimeout: 30_000,
     genReqId: (req) => {
       const incomingId = req.headers['x-request-id'];
       if (typeof incomingId === 'string' && incomingId.trim().length > 0) {
@@ -58,6 +61,9 @@ export function buildApp() {
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
   });
+
+  // Automatically cache successful idempotent responses
+  app.addHook('onSend', saveIdempotentResponseHook);
 
   // Error handling
   app.setErrorHandler(errorHandler);

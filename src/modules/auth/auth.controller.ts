@@ -18,7 +18,7 @@ export async function handleRegister(request: FastifyRequest, reply: FastifyRepl
 
   const { userId } = await register(result.data);
 
-  reply.status(201).send({
+  return reply.status(201).send({
     message: 'Account created successfully',
     userId,
   });
@@ -34,7 +34,7 @@ export async function handleLogin(request: FastifyRequest, reply: FastifyReply):
 
   const tokens = await login(result.data);
 
-  reply.status(200).send(tokens);
+  return reply.status(200).send(tokens);
 }
 
 // ─── POST /auth/refresh ───────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ export async function handleRefresh(request: FastifyRequest, reply: FastifyReply
 
   const tokens = await refresh(result.data.refreshToken);
 
-  reply.status(200).send(tokens);
+  return reply.status(200).send(tokens);
 }
 
 // ─── POST /auth/logout ────────────────────────────────────────────────────────
@@ -60,12 +60,12 @@ export async function handleLogout(request: FastifyRequest, reply: FastifyReply)
 
   await logout(result.data.refreshToken);
 
-  reply.status(204).send();
+  return reply.status(204).send();
 }
 
 // ─── POST /auth/logout-all ────────────────────────────────────────────────────
 
 export async function handleLogoutAll(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   await logoutAll(request.user.id);
-  reply.status(204).send();
+  return reply.status(204).send();
 }

@@ -31,7 +31,7 @@ export async function handleListProducts(
 
   const catalog = await listProducts(result.data);
 
-  reply
+  return reply
     .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
     .status(200)
     .send(catalog);
@@ -50,11 +50,10 @@ export async function handleGetProduct(
     .digest('hex')}"`;
 
   if (request.headers['if-none-match'] === etag) {
-    reply.status(304).send();
-    return;
+    return reply.status(304).send();
   }
 
-  reply
+  return reply
     .header('ETag', etag)
     .header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120')
     .status(200)
@@ -62,6 +61,14 @@ export async function handleGetProduct(
 }
 
 // ─── Admin Endpoints ──────────────────────────────────────────────────────────
+
+function getAuditActor(request: FastifyRequest) {
+  return {
+    actorId: request.user?.id,
+    actorRole: (request.user?.role?.toUpperCase() as 'ADMIN' | 'CUSTOMER' | 'SYSTEM') || 'ADMIN',
+    ip: request.ip,
+  };
+}
 
 export async function handleCreateProduct(
   request: FastifyRequest,
@@ -72,9 +79,9 @@ export async function handleCreateProduct(
     throw new BadRequestError('Validation failed', result.error.issues);
   }
 
-  const product = await createProduct(result.data);
+  const product = await createProduct(result.data, getAuditActor(request));
 
-  reply.status(201).send(product);
+  return reply.status(201).send(product);
 }
 
 export async function handleUpdateProduct(
@@ -87,9 +94,9 @@ export async function handleUpdateProduct(
     throw new BadRequestError('Validation failed', result.error.issues);
   }
 
-  const updated = await updateProduct(id, result.data);
+  const updated = await updateProduct(id, result.data, getAuditActor(request));
 
-  reply.status(200).send(updated);
+  return reply.status(200).send(updated);
 }
 
 export async function handleUpdateAvailability(
@@ -102,9 +109,13 @@ export async function handleUpdateAvailability(
     throw new BadRequestError('Validation failed', result.error.issues);
   }
 
-  const updated = await updateProductAvailability(id, result.data.isAvailable);
+  const updated = await updateProductAvailability(
+    id,
+    result.data.isAvailable,
+    getAuditActor(request),
+  );
 
-  reply.status(200).send(updated);
+  return reply.status(200).send(updated);
 }
 
 export async function handleDeleteProduct(
@@ -112,9 +123,9 @@ export async function handleDeleteProduct(
   reply: FastifyReply,
 ): Promise<void> {
   const { id } = request.params as { id: string };
-  const response = await deleteProduct(id);
+  const response = await deleteProduct(id, getAuditActor(request));
 
-  reply.status(200).send(response);
+  return reply.status(200).send(response);
 }
 
 export async function handleUpdateInventory(
@@ -127,7 +138,7 @@ export async function handleUpdateInventory(
     throw new BadRequestError('Validation failed', result.error.issues);
   }
 
-  const inv = await updateInventoryOnHand(productId, result.data.onHand);
+  const inv = await updateInventoryOnHand(productId, result.data.onHand, getAuditActor(request));
 
-  reply.status(200).send(inv);
+  return reply.status(200).send(inv);
 }

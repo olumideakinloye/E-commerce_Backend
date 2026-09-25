@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { NotFoundError, ConflictError } from '@common/errors.js';
 import { getCached, setCached, deleteCached } from '@common/utils/cache.js';
+import { recordAuditLog } from '@common/utils/audit.js';
 import {
   findProductsPaginated,
   findProductById,
@@ -22,6 +23,13 @@ import type {
 import type { ProductDoc } from './models/product.model.js';
 
 const PRODUCT_CACHE_TTL = 60; // 60 seconds
+
+export interface AuditActor {
+  actorId?: string;
+  actorEmail?: string;
+  actorRole?: 'ADMIN' | 'CUSTOMER' | 'SYSTEM';
+  ip?: string;
+}
 
 export function slugify(text: string): string {
   return text
@@ -121,7 +129,7 @@ export async function getProductById(id: string) {
   return formatted;
 }
 
-export async function createProduct(data: CreateProductBody) {
+export async function createProduct(data: CreateProductBody, actor?: AuditActor) {
   let slug = data.slug || slugify(data.name);
 
   // Check slug uniqueness
@@ -154,6 +162,17 @@ export async function createProduct(data: CreateProductBody) {
 
   await deleteCached('product:*');
 
+  void recordAuditLog({
+    actorId: actor?.actorId,
+    actorEmail: actor?.actorEmail,
+    actorRole: actor?.actorRole ?? 'ADMIN',
+    action: 'PRODUCT_CREATED',
+    targetType: 'Product',
+    targetId: product._id.toString(),
+    diff: { after: productData },
+    ip: actor?.ip,
+  });
+
   return {
     id: product._id.toString(),
     name: product.name,
@@ -170,7 +189,7 @@ export async function createProduct(data: CreateProductBody) {
   };
 }
 
-export async function updateProduct(id: string, data: UpdateProductBody) {
+export async function updateProduct(id: string, data: UpdateProductBody, actor?: AuditActor) {
   if (!Types.ObjectId.isValid(id)) {
     throw new NotFoundError('Product not found');
   }
@@ -191,6 +210,24 @@ export async function updateProduct(id: string, data: UpdateProductBody) {
   await deleteCached(`product:${id}`);
   await deleteCached('product:*');
 
+  void recordAuditLog({
+    actorId: actor?.actorId,
+    actorEmail: actor?.actorEmail,
+    actorRole: actor?.actorRole ?? 'ADMIN',
+    action: 'PRODUCT_UPDATED',
+    targetType: 'Product',
+    targetId: id,
+    diff: {
+      before: {
+        name: existing.name,
+        priceMinor: existing.priceMinor,
+        description: existing.description,
+      },
+      after: data,
+    },
+    ip: actor?.ip,
+  });
+
   return {
     id: updated._id.toString(),
     name: updated.name,
@@ -206,7 +243,11 @@ export async function updateProduct(id: string, data: UpdateProductBody) {
   };
 }
 
-export async function updateProductAvailability(id: string, isAvailable: boolean) {
+export async function updateProductAvailability(
+  id: string,
+  isAvailable: boolean,
+  actor?: AuditActor,
+) {
   if (!Types.ObjectId.isValid(id)) {
     throw new NotFoundError('Product not found');
   }
@@ -219,13 +260,24 @@ export async function updateProductAvailability(id: string, isAvailable: boolean
   await deleteCached(`product:${id}`);
   await deleteCached('product:*');
 
+  void recordAuditLog({
+    actorId: actor?.actorId,
+    actorEmail: actor?.actorEmail,
+    actorRole: actor?.actorRole ?? 'ADMIN',
+    action: 'PRODUCT_AVAILABILITY_CHANGED',
+    targetType: 'Product',
+    targetId: id,
+    diff: { after: { isAvailable } },
+    ip: actor?.ip,
+  });
+
   return {
     id: updated._id.toString(),
     isAvailable: updated.isAvailable,
   };
 }
 
-export async function deleteProduct(id: string) {
+export async function deleteProduct(id: string, actor?: AuditActor) {
   if (!Types.ObjectId.isValid(id)) {
     throw new NotFoundError('Product not found');
   }
@@ -238,10 +290,20 @@ export async function deleteProduct(id: string) {
   await deleteCached(`product:${id}`);
   await deleteCached('product:*');
 
+  void recordAuditLog({
+    actorId: actor?.actorId,
+    actorEmail: actor?.actorEmail,
+    actorRole: actor?.actorRole ?? 'ADMIN',
+    action: 'PRODUCT_ARCHIVED',
+    targetType: 'Product',
+    targetId: id,
+    ip: actor?.ip,
+  });
+
   return { message: 'Product archived successfully' };
 }
 
-export async function updateInventoryOnHand(productId: string, onHand: number) {
+export async function updateInventoryOnHand(productId: string, onHand: number, actor?: AuditActor) {
   if (!Types.ObjectId.isValid(productId)) {
     throw new NotFoundError('Product not found');
   }
@@ -253,6 +315,17 @@ export async function updateInventoryOnHand(productId: string, onHand: number) {
 
   const inv = await upsertInventory(productId, onHand);
   await deleteCached(`product:${productId}`);
+
+  void recordAuditLog({
+    actorId: actor?.actorId,
+    actorEmail: actor?.actorEmail,
+    actorRole: actor?.actorRole ?? 'ADMIN',
+    action: 'INVENTORY_ADJUSTED',
+    targetType: 'Inventory',
+    targetId: productId,
+    diff: { after: { onHand } },
+    ip: actor?.ip,
+  });
 
   return {
     productId: inv.productId.toString(),

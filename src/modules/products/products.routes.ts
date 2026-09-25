@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate, authorize } from '@common/middleware/authenticate.js';
+import { idempotency } from '@common/middleware/idempotency.js';
 import {
   handleListProducts,
   handleGetProduct,
@@ -15,11 +16,11 @@ export async function productRoutes(app: FastifyInstance): Promise<void> {
   app.get('/products', handleListProducts);
   app.get('/products/:id', handleGetProduct);
 
-  // Admin routes protected by authentication and admin role
+  // Admin routes protected by authentication, admin role, and optional idempotency
   app.post(
     '/admin/products',
     {
-      preHandler: [authenticate, authorize('admin')],
+      preHandler: [authenticate, authorize('admin'), idempotency({ required: false })],
     },
     handleCreateProduct,
   );

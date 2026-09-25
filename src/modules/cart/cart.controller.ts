@@ -11,7 +11,7 @@ import { AddCartItemBodySchema, UpdateCartItemBodySchema } from './cart.schemas.
 
 export async function handleGetCart(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const cart = await getLiveCart(request.user.id);
-  reply.status(200).send(cart);
+  return reply.status(200).send(cart);
 }
 
 export async function handleAddCartItem(
@@ -24,7 +24,7 @@ export async function handleAddCartItem(
   }
 
   const cart = await addCartItem(request.user.id, result.data.productId, result.data.qty);
-  reply.status(200).send(cart);
+  return reply.status(200).send(cart);
 }
 
 export async function handleUpdateCartItem(
@@ -38,7 +38,7 @@ export async function handleUpdateCartItem(
   }
 
   const cart = await updateCartItem(request.user.id, productId, result.data.qty);
-  reply.status(200).send(cart);
+  return reply.status(200).send(cart);
 }
 
 export async function handleRemoveCartItem(
@@ -47,10 +47,10 @@ export async function handleRemoveCartItem(
 ): Promise<void> {
   const { productId } = request.params as { productId: string };
   const cart = await removeCartItemAndGetLiveCart(request.user.id, productId);
-  reply.status(200).send(cart);
+  return reply.status(200).send(cart);
 }
 
 export async function handleClearCart(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   await clearUserCart(request.user.id);
-  reply.status(204).send();
+  return reply.status(204).send();
 }

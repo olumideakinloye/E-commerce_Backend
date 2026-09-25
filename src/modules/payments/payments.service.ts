@@ -9,6 +9,7 @@ import {
 import { getPaymentProvider } from './providers/index.js';
 import { logger } from '@common/logger.js';
 import { UnauthorizedError, UnprocessableEntityError } from '@common/errors.js';
+import { recordAuditLog } from '@common/utils/audit.js';
 
 export interface ProcessWebhookResult {
   status: 'PROCESSED' | 'DUPLICATE' | 'IGNORED' | 'SUSPICIOUS_AMOUNT';
@@ -193,6 +194,23 @@ export async function processWebhook(
   } finally {
     await session.endSession();
   }
+
+  void recordAuditLog({
+    actorRole: 'SYSTEM',
+    action: event.eventType === 'charge.success' ? 'PAYMENT_RECEIVED' : 'PAYMENT_FAILED',
+    targetType: 'Payment',
+    targetId: payment._id.toString(),
+    diff: {
+      before: { status: payment.status },
+      after: { status: event.eventType === 'charge.success' ? 'SUCCESS' : 'FAILED' },
+    },
+    metadata: {
+      provider: providerName,
+      reference: event.reference,
+      eventId: event.eventId,
+      orderId: payment.orderId.toString(),
+    },
+  });
 
   const finalOrder = await Order.findById(payment.orderId);
 

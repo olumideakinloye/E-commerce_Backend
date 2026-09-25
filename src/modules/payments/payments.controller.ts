@@ -16,7 +16,7 @@ export async function handleWebhook(request: FastifyRequest, reply: FastifyReply
   const result = await processWebhook(provider, rawBody, signature);
 
   // Always respond HTTP 200 to acknowledge webhook receipt immediately
-  reply.status(200).send({
+  return reply.status(200).send({
     received: true,
     status: result.status,
     eventId: result.eventId,
@@ -30,5 +30,5 @@ export async function handleVerifyOrderPayment(
   const { id } = request.params as { id: string };
   const result = await verifyOrderPayment(id, request.user.id);
 
-  reply.status(200).send(result);
+  return reply.status(200).send(result);
 }
