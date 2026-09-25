@@ -11,6 +11,7 @@ import { env } from '@config/env.js';
 import { authRoutes } from '@modules/auth/auth.routes.js';
 import { orderRoutes } from '@modules/orders/orders.routes.js';
 import { productRoutes } from '@modules/products/products.routes.js';
+import { cartRoutes } from '@modules/cart/cart.routes.js';
 
 export function buildApp() {
   const app = fastify({
@@ -97,6 +98,11 @@ export function buildApp() {
   // Product & catalog routes (public + admin)
   app.register(productRoutes, {
     prefix: '/api/v1',
+  });
+
+  // Cart routes (authenticated, owner-scoped)
+  app.register(cartRoutes, {
+    prefix: '/api/v1/cart',
   });
 
   return app;

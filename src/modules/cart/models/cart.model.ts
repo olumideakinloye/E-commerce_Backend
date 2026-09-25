@@ -47,5 +47,8 @@ const cartSchema = new Schema(
   },
 );
 
+// TTL index for inactive cart expiry (30 days of inactivity)
+cartSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+
 export type CartDoc = InferSchemaType<typeof cartSchema> & Document;
 export const Cart = model<CartDoc>('Cart', cartSchema);
