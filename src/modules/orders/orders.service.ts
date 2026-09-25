@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
-import mongoose, { Types } from 'mongoose';
+import { Types } from 'mongoose';
 import { Order, type OrderDoc } from './models/order.model.js';
 import { Payment } from '@modules/payments/models/payment.model.js';
 import { Outbox } from '@modules/jobs/models/outbox.model.js';
 import { IdempotencyKey } from '@common/models/idempotency-key.model.js';
+import { withRetryableTransaction } from '@common/utils/transaction.js';
 import { getLiveCart } from '@modules/cart/cart.service.js';
 import {
   reserveStockInSession,
@@ -157,9 +158,25 @@ export async function checkout(
     totalMinor: item.subtotalMinor,
   }));
 
-  const session = await mongoose.startSession();
+  let createdOrderId = orderId;
+  let createdPaymentRef = paymentRef;
+  let createdExpiresAt = expiresAt;
+
   try {
-    await session.withTransaction(async () => {
+    await withRetryableTransaction(async (session) => {
+      // Check if order was already created concurrently with this idempotency key
+      const existing = await Order.findOne({ userId: userObjectId, idempotencyKey }).session(
+        session,
+      );
+      if (existing) {
+        createdOrderId = existing._id as Types.ObjectId;
+        createdPaymentRef = existing.paymentRef || paymentRef;
+        if (existing.expiresAt) {
+          createdExpiresAt = existing.expiresAt;
+        }
+        return;
+      }
+
       // 4a. Conditionally reserve stock (rolls back whole transaction if insufficient stock)
       await reserveStockInSession(orderId, reservationItems, session);
 
@@ -226,28 +243,49 @@ export async function checkout(
         { session, ordered: true },
       );
     });
-  } finally {
-    await session.endSession();
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code: number }).code === 11000
+    ) {
+      // Concurrent duplicate idempotency key caught by unique index
+      const existingOrder = await Order.findOne({ userId: userObjectId, idempotencyKey });
+      if (existingOrder) {
+        createdOrderId = existingOrder._id as Types.ObjectId;
+        createdPaymentRef = existingOrder.paymentRef || paymentRef;
+        if (existingOrder.expiresAt) {
+          createdExpiresAt = existingOrder.expiresAt;
+        }
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
   }
 
   // 5. Post-commit operations (outside the DB transaction)
-  // Schedule delayed expiry job
-  await scheduleReservationExpiry(orderId.toString(), RESERVATION_TTL_MS);
+  // Schedule delayed expiry job only if this request actually created the order
+  if (createdOrderId === orderId) {
+    await scheduleReservationExpiry(orderId.toString(), RESERVATION_TTL_MS);
+  }
 
   const responseBody = {
     order: {
-      id: orderId.toString(),
+      id: createdOrderId.toString(),
       status: 'PENDING_PAYMENT',
       totals: {
         grandTotalMinor: calculatedGrandTotalMinor,
         currency: input.currency,
       },
-      expiresAt: expiresAt.toISOString(),
+      expiresAt: createdExpiresAt.toISOString(),
     },
     payment: {
       provider: input.paymentProvider,
-      reference: paymentRef,
-      authorizationUrl: `https://checkout.${input.paymentProvider}.com/pay/${paymentRef}`,
+      reference: createdPaymentRef,
+      authorizationUrl: `https://checkout.${input.paymentProvider}.com/pay/${createdPaymentRef}`,
     },
   };
 
