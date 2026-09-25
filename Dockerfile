@@ -25,8 +25,8 @@ ENV NODE_ENV=production
 
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm ci --omit=dev && npm cache clean --force
+# Copy production node_modules from builder stage to avoid reinstall
+COPY --from=builder /usr/src/app/node_modules ./node_modules
 
 # Copy built artifacts from builder
 COPY --from=builder /usr/src/app/dist ./dist
